@@ -1,0 +1,6 @@
+opencc-python-reimplemented
+rapidfuzz
+truststore
+pymupdf
+winocr
+pillow
