@@ -1,6 +1,7 @@
 """本機搜尋網站。用法：python server.py ，然後開 http://localhost:8765"""
 import json
 import sys
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -27,6 +28,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
+        if self.path == "/api/outline":
+            return self.do_outline()
         if self.path != "/api/search":
             return self._send(404, b"not found", "text/plain")
         try:
@@ -47,6 +50,23 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # 回報錯誤給頁面
             body = json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8")
             self._send(500, body, "application/json; charset=utf-8")
+
+    def do_outline(self):
+        """上傳綱要檔（原始位元組，檔名放在 X-Filename 標頭），回傳拆好的綱目點。"""
+        try:
+            n = int(self.headers.get("Content-Length", 0))
+            if n > 30 * 1024 * 1024:
+                raise ValueError("檔案太大（上限 30 MB）。")
+            name = urllib.parse.unquote(self.headers.get("X-Filename", "outline.txt"))
+            import outline
+            res = outline.parse(name, self.rfile.read(n))
+            if not res["points"]:
+                raise ValueError("這個檔案裏讀不到文字。")
+            body = json.dumps(res, ensure_ascii=False).encode("utf-8")
+            self._send(200, body, "application/json; charset=utf-8")
+        except Exception as e:
+            body = json.dumps({"error": str(e)}, ensure_ascii=False).encode("utf-8")
+            self._send(400, body, "application/json; charset=utf-8")
 
     def log_message(self, *a):
         pass

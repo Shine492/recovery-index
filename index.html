@@ -18,6 +18,7 @@
   --hero1:#222a26;--hero2:#171b19;
 }}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);line-height:1.8;
   font-family:"Microsoft JhengHei","Noto Sans TC","PingFang TC",sans-serif}
 .serif{font-family:"Noto Serif TC","PMingLiU","Songti TC",serif}
@@ -76,6 +77,32 @@ mark{background:var(--mark);color:inherit;padding:0 2px;border-radius:2px}
 .notes{margin-top:26px;color:var(--muted);font-size:.9rem}
 .notes b{color:var(--ink)}
 .err{color:#b3261e}
+.drop{border:2px dashed var(--line);border-radius:14px;padding:34px 16px;text-align:center;color:var(--muted);cursor:pointer;background:var(--bg)}
+.drop.over,.drop:focus{border-color:var(--green);color:var(--ink);outline:none}
+.drop-big{font-size:1.35rem;color:var(--ink);margin-bottom:4px}
+.layout.full{grid-template-columns:1fr}
+.layout.full .side{display:none}
+.bar{height:8px;background:var(--soft);border-radius:4px;overflow:hidden;margin:6px 0 12px}
+.bar i{display:block;height:100%;background:var(--green);transition:width .2s}
+.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.btn2{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:5px 14px;font-family:inherit;font-size:.92rem;cursor:pointer}
+.btn2.on{background:var(--green);color:var(--green-ink);border-color:var(--green)}
+.pt{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:8px 0}
+.pt-head{display:flex;gap:10px;align-items:flex-start}
+.pt-mark{font-weight:700;color:var(--accent);white-space:nowrap;min-width:1.6em}
+.pt-text{flex:1;font-size:1.03rem}
+.chip{white-space:nowrap;font-size:.84rem;font-weight:700;border-radius:999px;padding:1px 11px;margin-top:3px}
+.chip.ok{background:var(--c-rv);color:#fff}
+.chip.mid{background:var(--c-outl);color:#fff}
+.chip.no{background:var(--soft);color:var(--muted)}
+@media (prefers-color-scheme:dark){.chip.ok,.chip.mid{color:#111}}
+.pt details{margin-top:6px;border-top:1px dashed var(--line);padding-top:6px}
+.pt summary{cursor:pointer;color:var(--muted);font-size:.92rem}
+.pt summary b{color:var(--ink);font-weight:500}
+.hit{margin:8px 0 2px;padding-left:10px;border-left:3px solid var(--line)}
+.hit .where{font-size:.92rem}
+.hit .where a{color:inherit}
+.hit .txt{font-size:.98rem;margin-top:2px}
 </style>
 </head>
 <body>
@@ -94,8 +121,14 @@ mark{background:var(--mark);color:inherit;padding:0 2px;border-radius:2px}
       <button class="tab on" data-mode="auto">自動判斷</button>
       <button class="tab" data-mode="sentence">找出處</button>
       <button class="tab" data-mode="keyword">關鍵詞</button>
+      <button class="tab" data-mode="outline">上傳綱要</button>
     </div>
-    <div class="row">
+    <div id="drop" class="drop" hidden tabindex="0">
+      <div class="drop-big serif">把綱要檔拉到這裏</div>
+      <div>或 <u>點這裏選擇檔案</u>　（Word .docx、PDF、純文字 .txt）</div>
+      <input type="file" id="file" accept=".docx,.pdf,.txt" hidden>
+    </div>
+    <div class="row" id="qrow">
       <textarea id="q" rows="1" placeholder="貼上句子或整段；或輸入幾個詞（用空白隔開）"></textarea>
       <button class="go" id="go">搜尋</button>
     </div>
@@ -128,14 +161,125 @@ const COLOR = Object.fromEntries(SOURCES);
 const HINTS = {
   auto:'自動判斷：沒有標點、只有幾個短詞就當關鍵詞搜尋；其餘當句子找出處。',
   sentence:'找出處：逐句比對，列出完全相同或相似度達門檻的句子。',
-  keyword:'關鍵詞：最多 4 個詞，用空白隔開，找出同一段裏都有這些詞的地方，並列出約 30 字原文。'};
+  keyword:'關鍵詞：最多 4 個詞，用空白隔開，找出同一段裏都有這些詞的地方，並列出約 30 字原文。',
+  outline:'上傳綱要：把綱要檔拉進來，會拆成一個一個綱目點，逐點找出處或相似度達門檻的句子（預設 80%）。Word 檔拆得最準。'};
 let mode = 'auto', data = null, enabled = new Set(SOURCES.map(s=>s[0])), elapsed = 0;
 
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   mode = b.dataset.mode;
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
   $('#hint').textContent = HINTS[mode];
+  const ol = mode==='outline';
+  $('#drop').hidden = !ol; $('#qrow').hidden = ol;
+  // 綱要比對預設 80%，其餘 90%（只在使用者沒改過時切換）
+  const th = $('#th'); if(ol && th.value==='90') th.value='80'; if(!ol && th.value==='80') th.value='90';
 });
+
+// ---------- 上傳綱要 ----------
+const drop = $('#drop'), fileIn = $('#file');
+drop.onclick = ()=>fileIn.click();
+drop.onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fileIn.click(); } };
+fileIn.onchange = ()=>{ if(fileIn.files[0]) handleFile(fileIn.files[0]); fileIn.value=''; };
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{ e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) handleFile(f); });
+// 拉到頁面其他地方時，不要讓瀏覽器直接打開檔案
+['dragover','drop'].forEach(ev=>window.addEventListener(ev,e=>e.preventDefault()));
+
+let OL = null;   // 目前的綱要比對狀態
+async function handleFile(f){
+  $('#layout').hidden = true; $('#msg').innerHTML = `<p class="none">正在讀取「${esc(f.name)}」…</p>`;
+  try{
+    const r = await fetch('/api/outline',{method:'POST',headers:{'X-Filename':encodeURIComponent(f.name)},body:f});
+    const d = await r.json();
+    if(d.error) throw new Error(d.error);
+    const run = {name:f.name, ocr:d.ocr, points:d.points, done:0, onlyMiss:false, flags:{}};
+    run.todo = d.points.filter(p=>!p.skip).length;
+    OL = run; data = null;
+    $('#msg').innerHTML=''; $('#layout').hidden=false; $('#layout').classList.add('full');
+    renderOutline();
+    const th = +$('#th').value||80, cw = $('#cw').checked;
+    let next = 0;
+    const worker = async()=>{
+      while(OL===run){
+        const p = run.points[next++]; if(!p) return;
+        if(p.skip) continue;
+        try{
+          const res = await (await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({text:p.query, threshold:th, cwwl:cw, mode:'sentence'})})).json();
+          if(res.error) throw new Error(res.error);
+          const seen=new Set(), hits=[];
+          res.sentences.forEach(s=>s.results.forEach(x=>{
+            const k=x.source+'|'+x.title+'|'+x.label; if(!seen.has(k)){ seen.add(k); hits.push(x); } }));
+          hits.sort((a,b)=>b.score-a.score);
+          p.hits = hits;
+          if(res.cwwl_failed) run.flags.cwwl=true;
+          if(res.input_converted) run.flags.input=true;
+        }catch(e){ p.hits=[]; p.error=e.message; }
+        run.done++;
+        if(OL===run) renderOutline();
+      }
+    };
+    await Promise.all([worker(),worker(),worker()]);
+  }catch(e){ $('#msg').innerHTML = `<p class="err">發生錯誤：${esc(e.message)}</p>`; }
+}
+function hitLine(x){ return [x.source, x.title, x.label].filter(Boolean).join(' › '); }
+function renderOutline(){
+  const o=OL, pts=o.points;
+  const found = pts.filter(p=>p.hits&&p.hits.length).length;
+  const miss = pts.filter(p=>p.hits&&!p.hits.length).length;
+  const skipped = pts.filter(p=>p.skip).length;
+  const finished = o.done>=o.todo;
+  $('#heroTitle').textContent = '綱要出處比對';
+  $('#heroSub').textContent = `${o.name}・共 ${pts.length} 點`;
+  let h = `<div class="sum"><b class="serif">${found}</b> 點找到出處　<b class="serif">${miss}</b> 點未找到
+    <small>${finished?'比對完成':`比對中 ${o.done}/${o.todo}…`}${skipped?`　略過 ${skipped} 點`:''}</small></div>
+    <div class="bar"><i style="width:${o.todo?o.done/o.todo*100:100}%"></i></div>
+    <div class="tools"><button class="btn2 ${o.onlyMiss?'on':''}" onclick="OL.onlyMiss=!OL.onlyMiss;renderOutline()">只看未找到的</button>
+    <button class="btn2" onclick="copyOutline(this)">複製結果</button>
+    <button class="btn2" onclick="document.querySelectorAll('.pt details').forEach(d=>d.open=!window._allOpen);window._allOpen=!window._allOpen">全部展開／收合</button></div>`;
+  const open = new Set([...document.querySelectorAll('.pt details[open]')].map(d=>d.dataset.i));
+  let conv=false, ocrSrc=false;
+  pts.forEach((p,i)=>{
+    if(o.onlyMiss && !(p.hits && !p.hits.length)) return;
+    let chip, body='';
+    if(p.skip) chip = `<span class="chip no">略過</span>`;
+    else if(!p.hits) chip = `<span class="chip no">比對中…</span>`;
+    else if(!p.hits.length) chip = `<span class="chip no">${p.error?'出錯':'未找到'}</span>`;
+    else{
+      const b=p.hits[0];
+      chip = `<span class="chip ${b.score>=95?'ok':'mid'}">${b.score}%</span>`;
+      body = `<details data-i="${i}" ${open.has(String(i))?'open':''}><summary><b>${esc(hitLine(b))}</b>${p.hits.length>1?`　另有 ${p.hits.length-1} 筆`:''}</summary>`
+        + p.hits.slice(0,6).map(x=>{
+            if(x.converted) conv=true; if(x.source==='特會訓練綱要') ocrSrc=true;
+            return `<div class="hit"><div class="where"><span class="badge" style="background:var(${COLOR[x.source]})">${x.source}</span>
+              <a href="${x.url}" target="_blank" rel="noopener">${esc([x.title,x.label].filter(Boolean).join(' › '))}</a>　<b>${x.score}%</b> <span class="ctx">${x.kind}</span></div>
+              <div class="txt">${x.snippet}</div></div>`; }).join('') + `</details>`;
+    }
+    h += `<div class="pt" style="margin-left:${Math.min(p.level,5)*18}px"><div class="pt-head">
+      ${p.marker?`<span class="pt-mark">${esc(p.marker)}</span>`:''}<span class="pt-text">${esc(p.text)}</span>${chip}</div>${body}</div>`;
+  });
+  const notes=[];
+  if(o.ocr) notes.push('這份 PDF 沒有文字層，內容是用文字辨識（OCR）讀出來的，拆點和文字可能有誤；用 Word 檔上傳會準確得多。');
+  notes.push('比對時已去掉每一點開頭的編號，以及句尾、括號裏的經文出處。');
+  if(conv) notes.push('部分結果的原文為簡體（倪柝聲文集、部分特會綱要），已轉為繁體顯示。');
+  if(ocrSrc) notes.push('《特會訓練綱要》的內容是用文字辨識取得的，可能有少數錯字；請點連結開啟原 PDF 核對。');
+  if(o.flags.input) notes.push('綱要中的簡體字已轉為繁體顯示；比對時繁簡視為相同。');
+  if(o.flags.cwwl) notes.push('李常受文集線上索引有幾次連線失敗或逾時，那幾點的結果可能不完整。');
+  h += `<div class="card notes"><b>調整說明</b><br>${notes.map(n=>'・'+esc(n)).join('<br>')}</div>`;
+  $('#out').innerHTML = h;
+}
+function copyOutline(btn){
+  const lines = OL.points.map(p=>{
+    const head = '　'.repeat(Math.min(p.level,5)) + (p.marker?p.marker+' ':'') + p.text;
+    if(p.skip) return head;
+    if(!p.hits) return head + '\n' + '　'.repeat(p.level+1) + '→（尚未比對）';
+    if(!p.hits.length) return head + '\n' + '　'.repeat(p.level+1) + '→ 未找到';
+    return head + '\n' + p.hits.slice(0,3).map(x=>'　'.repeat(p.level+1)+`→ ${hitLine(x)}（${x.score}%）`).join('\n');
+  }).join('\n');
+  navigator.clipboard.writeText(lines).then(()=>{ btn.textContent='已複製'; setTimeout(()=>btn.textContent='複製結果',1500); },
+    ()=>{ btn.textContent='複製失敗'; });
+}
 $('#hint').textContent = HINTS.auto;
 
 const ta = $('#q');
@@ -159,6 +303,7 @@ async function run(){
     if(d.error) throw new Error(d.error);
     data = d; elapsed = (performance.now()-t0)/1000;
     enabled = new Set(SOURCES.map(s=>s[0]));
+    OL = null; $('#layout').classList.remove('full');
     $('#msg').innerHTML=''; $('#layout').hidden=false; render();
   }catch(e){ $('#msg').innerHTML = `<p class="err">發生錯誤：${esc(e.message)}</p>`; }
   $('#go').disabled = false;
