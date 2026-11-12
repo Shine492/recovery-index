@@ -221,7 +221,13 @@ async function handleFile(f){
       }
     };
     await Promise.all([worker(),worker(),worker()]);
-  }catch(e){ $('#msg').innerHTML = `<p class="err">發生錯誤：${esc(e.message)}</p>`; }
+  }catch(e){ $('#msg').innerHTML = `<p class="err">${errText(e)}</p>`; }
+}
+// 連不到本機的搜尋程式時，說清楚原因（瀏覽器只會回報 Failed to fetch）
+function errText(e){
+  return (e instanceof TypeError)
+    ? '連不到搜尋程式。請確認「啟動搜尋網站.bat」的黑色視窗還開著（沒開的話請雙擊它），然後重新整理這個頁面再試一次。'
+    : '發生錯誤：' + esc(e.message);
 }
 function hitLine(x){ return [x.source, x.title, x.label].filter(Boolean).join(' › '); }
 function renderOutline(){
@@ -305,7 +311,7 @@ async function run(){
     enabled = new Set(SOURCES.map(s=>s[0]));
     OL = null; $('#layout').classList.remove('full');
     $('#msg').innerHTML=''; $('#layout').hidden=false; render();
-  }catch(e){ $('#msg').innerHTML = `<p class="err">發生錯誤：${esc(e.message)}</p>`; }
+  }catch(e){ $('#msg').innerHTML = `<p class="err">${errText(e)}</p>`; }
   $('#go').disabled = false;
 }
 
