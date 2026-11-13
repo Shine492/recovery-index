@@ -2,6 +2,7 @@
 並截出約 30 字的原文片段（詞以 <mark> 標示）。"""
 import html
 import re
+import urllib.parse
 
 import cwwl
 from common import normalize, s2t, t2s
@@ -155,6 +156,7 @@ def _local(db, tnorms):
         "SELECT rowid FROM paras_fts WHERE paras_fts MATCH ? LIMIT ?", (q, MAX_SCAN + 1))]
     capped = len(ids) > MAX_SCAN
     ids = ids[:MAX_SCAN]
+    from search import deep_link      # 連到原文那一段
     out = []
     for i in range(0, len(ids), 500):
         chunk = ids[i:i + 500]
@@ -175,7 +177,8 @@ def _local(db, tnorms):
                     (r["id"], r["id"] + 3, r["id"])).fetchall()
                 html_ = _pad_short(html_, r["disp"], [x[0] for x in nxt])
             out.append({"source": r["source"], "title": r["title"], "label": r["label"],
-                        "url": r["url"], "converted": bool(r["converted"]),
+                        "url": deep_link(r["source"], r["url"], r["disp"], bool(r["converted"])),
+                        "converted": bool(r["converted"]),
                         "snippet": html_, "dist": sn[1], "short": short, "order": r["id"]})
     return out, capped
 
@@ -198,7 +201,7 @@ def _cwwl(terms, tnorms):
             nxt = [p[3] for p in paras[i + 1:i + 4] if p[0] == src]
             html_ = _pad_short(html_, text, nxt)
         out.append({"source": "李常受文集", "title": title, "label": f"{src}　{page_no}",
-                    "url": cwwl.SITE, "converted": False,
+                    "url": "/go/cwwl?q=" + urllib.parse.quote(q, safe=""), "converted": False,
                     "snippet": html_, "dist": sn[1], "short": short, "order": i})
     return out
 

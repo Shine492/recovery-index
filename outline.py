@@ -120,18 +120,36 @@ _CJK_MARK = re.compile(r"^[壹貳參叁肆伍陸柒捌玖拾一二三四五六�
 _ENDS = re.compile(r"[^—─－、，,~～（(]$")      # 上一行不是停在破折號、頓號、逗號等「還沒講完」的地方
 
 
+IMG_MARK = "\x00"       # 用小圖片貼上去的數字編號（文字層裏沒有那個數字）
+# 某些排版字型把字放在私用區，讀出來是亂碼：轉回正常的字
+_PUA = {0xE5E3: "着", 0xE5F0: "參"}
+
+
+def _fix_text(s):
+    return s.translate(_PUA)
+
+
 def _text_page_rows(page):
     """有文字層的一頁 → 一列一列 [(字級, [片段文字…])]，已去掉上標註腳號和頁碼。"""
+    import unicodedata
     lines = []
     for b in page.get_text("dict")["blocks"]:
         for ln in b.get("lines", []):
             spans = [s for s in ln["spans"] if not (s["flags"] & 1) and s["text"].strip()]
             if not spans:
                 continue
-            text = "".join(s["text"] for s in spans).strip()
+            text = _fix_text("".join(s["text"] for s in spans).strip())
+            # 全形的編號（ａｂｃ、１２３）轉成半形
+            if len(text) <= 3:
+                text = unicodedata.normalize("NFKC", text)
             size = max(s["size"] for s in spans)
             x, y = spans[0]["bbox"][0], (ln["bbox"][1] + ln["bbox"][3]) / 2
             lines.append((y, x, size, text))
+    # 行首的小圖片（約一個字大小）當成數字編號
+    for info in page.get_image_info():
+        x0, y0, x1, y1 = info["bbox"]
+        if x1 - x0 <= 14 and y1 - y0 <= 16:
+            lines.append(((y0 + y1) / 2, x0, 0, IMG_MARK))
     lines.sort()
     rows = []
     for y, x, size, text in lines:
@@ -155,10 +173,18 @@ def _rows_to_paragraphs(rows):
     # 綱目點用的最小字級（以中文編號的列為準），比它小的編號列當作註腳
     cjk_sizes = [size for size, segs in rows if len(segs) > 1 and _CJK_MARK.match(segs[0].strip())]
     min_outline = min(cjk_sizes) if cjk_sizes else 0
-    paras, cur_size, verse_size = [], None, None
+    paras, cur_size, verse_size, img_no = [], None, None, 0
     for size, segs in rows:
+        if segs[0] == IMG_MARK:
+            if len(segs) == 1:
+                continue                               # 孤立的小圖，不是編號
+            img_no += 1                                # 圖片編號：依出現順序算 1、2、3…
+            segs = [str(img_no)] + segs[1:]
+        segs = [s for s in segs if s != IMG_MARK]
         first = segs[0].strip()
         is_marker = len(segs) > 1 and bool(_OCR_MARK.match(first))
+        if is_marker and _CJK_MARK.match(first):
+            img_no = 0                                 # 換到新的大點／中點，小點重新從 1 算
         if is_marker and size < min_outline - 0.4:
             continue                                   # 文末註腳（1 李常受文集…）
         # 上一點還沒寫完（不是以句讀結尾），這一行卻以數字開頭：是換行，不是新的一點

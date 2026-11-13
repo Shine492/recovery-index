@@ -1,4 +1,5 @@
 """本機搜尋網站。用法：python server.py ，然後開 http://localhost:8765"""
+import html
 import json
 import sys
 import urllib.parse
@@ -24,6 +25,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/", "/index.html"):
             self._send(200, PAGE_FILE.read_bytes(), "text/html; charset=utf-8")
+        elif self.path.startswith("/go/cwwl"):
+            # 李常受文集線上索引只能用表單（POST）搜尋，沒有固定網址：
+            # 這個中轉頁會自動把那句話送到該網站搜尋。
+            q = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("q", [""])[0][:60]
+            page = ('<!doctype html><html lang="zh-Hant"><meta charset="utf-8">'
+                    '<title>前往李常受文集線上索引…</title>'
+                    '<body style="font-family:sans-serif;padding:40px">正在前往李常受文集線上索引…'
+                    '<form id="f" method="post" action="https://cwwl.twgbr.org/search.php">'
+                    f'<input type="hidden" name="input_text" value="{html.escape(q, quote=True)}">'
+                    '<input type="hidden" name="catalog" value="0">'
+                    '<input type="hidden" name="sorting" value="1">'
+                    '<noscript><button>按這裏繼續</button></noscript></form>'
+                    '<script>document.getElementById("f").submit()</script></body></html>')
+            self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
         else:
             self._send(404, b"not found", "text/plain")
 

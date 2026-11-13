@@ -77,6 +77,8 @@ mark{background:var(--mark);color:inherit;padding:0 2px;border-radius:2px}
 .notes{margin-top:26px;color:var(--muted);font-size:.9rem}
 .notes b{color:var(--ink)}
 .err{color:#b3261e}
+a.open{display:inline-block;margin-left:8px;padding:0 10px;border:1px solid var(--line);border-radius:999px;font-size:.84rem;color:var(--accent);text-decoration:none;white-space:nowrap;background:var(--card)}
+a.open:hover{border-color:var(--accent)}
 .drop{border:2px dashed var(--line);border-radius:14px;padding:34px 16px;text-align:center;color:var(--muted);cursor:pointer;background:var(--bg)}
 .drop.over,.drop:focus{border-color:var(--green);color:var(--ink);outline:none}
 .drop-big{font-size:1.35rem;color:var(--ink);margin-bottom:4px}
@@ -211,7 +213,9 @@ async function handleFile(f){
           const seen=new Set(), hits=[];
           res.sentences.forEach(s=>s.results.forEach(x=>{
             const k=x.source+'|'+x.title+'|'+x.label; if(!seen.has(k)){ seen.add(k); hits.push(x); } }));
-          hits.sort((a,b)=>b.score-a.score);
+          // 相似度相同時，特會綱要排最後（上傳的綱要常會對到同一份綱要本身）
+          const rank = x => x.source==='特會訓練綱要' ? 99 : SOURCES.findIndex(s=>s[0]===x.source);
+          hits.sort((a,b)=>b.score-a.score || rank(a)-rank(b));
           p.hits = hits;
           if(res.cwwl_failed) run.flags.cwwl=true;
           if(res.input_converted) run.flags.input=true;
@@ -228,6 +232,10 @@ function errText(e){
   return (e instanceof TypeError)
     ? '連不到搜尋程式。請確認「啟動搜尋網站.bat」的黑色視窗還開著（沒開的話請雙擊它），然後重新整理這個頁面再試一次。'
     : '發生錯誤：' + esc(e.message);
+}
+// 各來源能連到多細：文章類直接捲到那一句；恢復本到該章；綱要開 PDF；李常受文集在該站搜尋那句話
+function openLabel(src){
+  return {'聖經恢復本':'開啟該章','特會訓練綱要':'開啟原 PDF','李常受文集':'到該站搜尋這句'}[src] || '開啟原文';
 }
 function hitLine(x){ return [x.source, x.title, x.label].filter(Boolean).join(' › '); }
 function renderOutline(){
@@ -259,7 +267,8 @@ function renderOutline(){
         + p.hits.slice(0,6).map(x=>{
             if(x.converted) conv=true; if(x.source==='特會訓練綱要') ocrSrc=true;
             return `<div class="hit"><div class="where"><span class="badge" style="background:var(${COLOR[x.source]})">${x.source}</span>
-              <a href="${x.url}" target="_blank" rel="noopener">${esc([x.title,x.label].filter(Boolean).join(' › '))}</a>　<b>${x.score}%</b> <span class="ctx">${x.kind}</span></div>
+              <a href="${x.url}" target="_blank" rel="noopener">${esc([x.title,x.label].filter(Boolean).join(' › '))}</a>　<b>${x.score}%</b> <span class="ctx">${x.kind}</span>
+              <a class="open" href="${x.url}" target="_blank" rel="noopener">${openLabel(x.source)} ↗</a></div>
               <div class="txt">${x.snippet}</div></div>`; }).join('') + `</details>`;
     }
     h += `<div class="pt" style="margin-left:${Math.min(p.level,5)*18}px"><div class="pt-head">
@@ -358,7 +367,8 @@ function render(){
           <span class="title serif"><a href="${r.url}" target="_blank" rel="noopener">${esc(r.title)}</a></span>
           ${r.score!=null?`<span class="score">${r.score}%</span>`:''}</div>
         <div class="body">${showCtx&&r.before?`<span class="ctx">${r.before}</span>`:''}${r.snippet}${showCtx&&r.after?`<span class="ctx">${r.after}</span>`:''}</div>
-        <div class="path">${path}${r.kind?' · '+r.kind:''}</div></div></div>`;
+        <div class="path">${path}${r.kind?' · '+r.kind:''}
+          <a class="open" href="${r.url}" target="_blank" rel="noopener">${openLabel(r.source)} ↗</a></div></div></div>`;
     });
   });
   const notes=[];

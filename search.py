@@ -4,8 +4,10 @@
 即時查詢：李常受文集線上索引（cwwl.twgbr.org）
 """
 import html
+import re
 import sqlite3
 import threading
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 from rapidfuzz import fuzz
@@ -29,6 +31,42 @@ def db():
         con.row_factory = sqlite3.Row
         _local.con = con
     return _local.con
+
+
+# ---------- 直達原文的連結 ----------
+_CLAUSE = re.compile(r"[，,。．！!？?；;：:、「」『』“”‘’（）()《》〈〉—─…\s]+")
+_cc_t2s = None
+
+
+def _fragment(text, converted=False):
+    """網址的「文字定位」片段：瀏覽器開啟後會捲到這段字並標示出來（Chrome、Edge、Safari 支援）。"""
+    global _cc_t2s
+    head = re.split(r"\s", text.strip(), maxsplit=1)[0][:14]
+    if len(normalize(head)) < 4:
+        return ""
+    if converted:            # 原網頁是簡體：轉回簡體才對得上（盡力而為，對不上時只是不會自動捲動）
+        if _cc_t2s is None:
+            from opencc import OpenCC
+            _cc_t2s = OpenCC("tw2s")
+        head = _cc_t2s.convert(head)
+    return "#:~:text=" + urllib.parse.quote(head, safe="").replace("-", "%2D")
+
+
+def deep_link(source, url, text, converted=False):
+    """把文件網址變成盡量直達那一句的網址。"""
+    if source in ("生命讀經", "肯定與否定", "倪柝聲文集"):
+        return url + _fragment(text, converted)
+    return url                # 恢復本：到該章；特會綱要：開啟該篇 PDF
+
+
+def cwwl_link(text):
+    """李常受文集線上索引沒有固定網址，只能用它的搜尋表單：
+    連到本機的中轉頁，由中轉頁自動在該網站搜尋這句話裏最長的一段。"""
+    clauses = [c for c in _CLAUSE.split(text) if c]
+    if not clauses:
+        return cwwl.SITE
+    q = max(clauses, key=len)[:16]
+    return "/go/cwwl?q=" + urllib.parse.quote(q, safe="")
 
 
 # ---------- 評分 ----------
@@ -127,7 +165,8 @@ def _local_search(n, threshold):
         after = _neighbor(nxt, 1) if nxt is not None else None
         results.append({
             "score": round(score, 1), "kind": kind, "source": doc["source"],
-            "title": doc["title"], "label": row["label"], "url": doc["url"],
+            "title": doc["title"], "label": row["label"],
+            "url": deep_link(doc["source"], doc["url"], row["disp"], bool(doc["converted"])),
             "converted": bool(doc["converted"]), "snippet": snippet,
             "before": html.escape(before["disp"]) if before is not None else "",
             "after": html.escape(after["disp"]) if after is not None else "",
@@ -161,7 +200,7 @@ def _cwwl_search(sentence, n, threshold):
         nd = sents[i + 1] if i + 1 < len(sents) else ""
         out.append({
             "score": round(score, 1), "kind": kind, "source": "李常受文集",
-            "title": title, "label": f"{src}　{page}", "url": cwwl.SITE,
+            "title": title, "label": f"{src}　{page}", "url": cwwl_link(sents[i]),
             "converted": False, "snippet": highlight(pd + sents[i] + nd, *span),
             "before": html.escape("".join(sents[max(0, i - 2):max(0, i - 1)])),
             "after": html.escape("".join(sents[i + 2:i + 3])),
